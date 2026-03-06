@@ -51,6 +51,8 @@ pub struct ClaudeWebContext {
     pub(super) stream: bool,
     /// The API format being used (Claude or OpenAI)
     pub(super) api_format: ClaudeApiFormat,
+    /// Whether OpenAI stream responses should emit the final usage chunk
+    pub(super) stream_include_usage: bool,
     /// The stop sequence used for the request
     pub(super) stop_sequences: Vec<String>,
     /// User information about input and output tokens
@@ -68,7 +70,7 @@ static TEST_MESSAGE_CLAUDE: LazyLock<Message> =
 /// Predefined test message in OpenAI format for connection testing
 static TEST_MESSAGE_OAI: LazyLock<Message> = LazyLock::new(|| Message::new_text(Role::User, "Hi"));
 
-struct NormalizeRequest(CreateMessageParams, ClaudeApiFormat);
+struct NormalizeRequest(CreateMessageParams, ClaudeApiFormat, bool);
 
 fn drop_empty_system(body: &mut CreateMessageParams) {
     let Some(system) = body.system.take() else {
@@ -196,12 +198,15 @@ where
         } else {
             ClaudeApiFormat::Claude
         };
-        let Json(mut body) = match format {
+        let (Json(mut body), stream_include_usage) = match format {
             ClaudeApiFormat::OpenAI => {
                 let Json(json) = Json::<OaiCreateMessageParams>::from_request(req, &()).await?;
-                Json(json.into())
+                (Json(json.clone().into()), json.stream_include_usage())
             }
-            ClaudeApiFormat::Claude => Json::<CreateMessageParams>::from_request(req, &()).await?,
+            ClaudeApiFormat::Claude => (
+                Json::<CreateMessageParams>::from_request(req, &()).await?,
+                false,
+            ),
         };
         if CLEWDR_CONFIG.load().sanitize_messages {
             // Trim whitespace and drop empty assistant turns when enabled.
@@ -212,7 +217,7 @@ where
             body.thinking.get_or_insert(Thinking::new(4096));
         }
         drop_empty_system(&mut body);
-        Ok(Self(body, format))
+        Ok(Self(body, format, stream_include_usage))
     }
 }
 
@@ -223,7 +228,8 @@ where
     type Rejection = ClewdrError;
 
     async fn from_request(req: Request, _: &S) -> Result<Self, Self::Rejection> {
-        let NormalizeRequest(body, format) = NormalizeRequest::from_request(req, &()).await?;
+        let NormalizeRequest(body, format, stream_include_usage) =
+            NormalizeRequest::from_request(req, &()).await?;
 
         // Check for test messages and respond appropriately
         if !body.stream.unwrap_or_default()
@@ -241,6 +247,7 @@ where
         let info = ClaudeWebContext {
             stream,
             api_format: format,
+            stream_include_usage,
             stop_sequences: body.stop_sequences.to_owned().unwrap_or_default(),
             usage: Usage {
                 input_tokens,
@@ -258,6 +265,8 @@ pub struct ClaudeCodeContext {
     pub(super) stream: bool,
     /// The API format being used (Claude or OpenAI)
     pub(super) api_format: ClaudeApiFormat,
+    /// Whether OpenAI stream responses should emit the final usage chunk
+    pub(super) stream_include_usage: bool,
     /// The hash of the system messages for caching purposes
     pub(super) system_prompt_hash: Option<u64>,
     /// Optional anthropic-beta header forwarded from client request
@@ -276,10 +285,10 @@ where
 
     async fn from_request(req: Request, _: &S) -> Result<Self, Self::Rejection> {
         let anthropic_beta = extract_anthropic_beta_header(req.headers());
-        let NormalizeRequest(mut body, format) = NormalizeRequest::from_request(req, &()).await?;
+        let NormalizeRequest(mut body, format, stream_include_usage) =
+            NormalizeRequest::from_request(req, &()).await?;
         // Handle thinking mode by modifying the model name
-        if  body.temperature.is_some()
-        {
+        if body.temperature.is_some() {
             body.top_p = None; // temperature and top_p cannot be used together in Opus-4.x
         }
 
@@ -342,6 +351,7 @@ where
         let info = ClaudeCodeContext {
             stream,
             api_format: format,
+            stream_include_usage,
             system_prompt_hash,
             anthropic_beta,
             usage: Usage {

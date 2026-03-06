@@ -140,6 +140,8 @@ impl RouterBuilder {
         let router = Router::new()
             .route("/code/v1/chat/completions", post(api_claude_code))
             .route("/code/v1/models", get(api_get_models))
+            .route("/opencode/v1/chat/completions", post(api_claude_code))
+            .route("/opencode/v1/models", get(api_get_models))
             .layer(
                 ServiceBuilder::new()
                     .layer(from_extractor::<RequireBearerAuth>())

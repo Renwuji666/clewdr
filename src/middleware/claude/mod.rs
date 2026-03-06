@@ -74,6 +74,13 @@ impl ClaudeContext {
         }
     }
 
+    pub fn stream_include_usage(&self) -> bool {
+        match self {
+            ClaudeContext::Web(ctx) => ctx.stream_include_usage,
+            ClaudeContext::Code(ctx) => ctx.stream_include_usage,
+        }
+    }
+
     pub fn anthropic_beta(&self) -> Option<&str> {
         match self {
             ClaudeContext::Web(_) => None,

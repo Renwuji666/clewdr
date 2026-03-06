@@ -34,25 +34,8 @@ where
 }
 
 /// Transforms responses to ensure compatibility with the OpenAI API format
-///
-/// This middleware function analyzes responses and transforms them when necessary
-/// to ensure compatibility between Claude and OpenAI API formats, particularly
-/// for streaming responses. If the response is:
-///
-/// - From the Claude API format: No transformation needed
-/// - Not streaming: No transformation needed
-/// - Has a non-200 status code: No transformation needed
-/// - OpenAI format and streaming: Transforms the stream to match OpenAI event format
-///
-/// # Arguments
-///
-/// * `resp` - The original response to be potentially transformed
-///
-/// # Returns
-///
-/// The original or transformed response as appropriate
 pub async fn to_oai(resp: Response) -> impl IntoResponse {
-    let Some(cx) = resp.extensions().get::<ClaudeContext>() else {
+    let Some(cx) = resp.extensions().get::<ClaudeContext>().cloned() else {
         return resp;
     };
     if ClaudeApiFormat::Claude == cx.api_format() {
@@ -65,7 +48,7 @@ pub async fn to_oai(resp: Response) -> impl IntoResponse {
         }
     }
     let stream = resp.into_body().into_data_stream().eventsource();
-    let stream = transform_stream(stream);
+    let stream = transform_stream(stream, cx.stream_include_usage(), cx.usage().to_owned());
     Sse::new(stream)
         .keep_alive(Default::default())
         .into_response()
