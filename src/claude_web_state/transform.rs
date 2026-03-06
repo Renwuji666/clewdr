@@ -47,7 +47,9 @@ impl ClaudeWebState {
             } else {
                 None
             },
-            rendering_mode: if value.stream.unwrap_or_default() {
+            rendering_mode: if tool_mode {
+                "raw".to_string()
+            } else if value.stream.unwrap_or_default() {
                 "messages".to_string()
             } else {
                 "raw".to_string()
